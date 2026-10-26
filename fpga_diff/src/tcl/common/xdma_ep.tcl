@@ -189,7 +189,11 @@ proc env_positive_integer {name default} {
 if { $bCheckIPs == 1 } {
   common::send_gid_msg -ssname BD::TCL -id 2058 -severity "INFO" "Current scripts_vivado_version value: '$::vivado_version'"
   
-  set xdma_vlnv [pick_ip_vlnv xdma]
+  if {[info exists ::env(XDMA_IP_VERSION)] && $::env(XDMA_IP_VERSION) ne ""} {
+    set xdma_vlnv "xilinx.com:ip:xdma:$::env(XDMA_IP_VERSION)"
+  } else {
+    set xdma_vlnv [pick_ip_vlnv xdma]
+  }
   set util_vlnv [pick_ip_vlnv util_ds_buf]
   set list_check_ips [list \
     $util_vlnv\
@@ -234,11 +238,14 @@ proc create_root_design { parentCell } {
   variable util_vlnv
   set xdma_link_width [env_choice XDMA_LINK_WIDTH X4 {X4 X8}]
   set uvhs_flow [expr {[info exists ::env(UVHS_FLOW)] && $::env(UVHS_FLOW) eq "1"}]
+  # PF0 BAR1 is the XDMA configuration BAR expected by xdma-chr.  It used to
+  # be enabled only for the UVHS flow; enable it for Vivado too, otherwise
+  # the host driver cannot find the config BAR and probe fails with EINVAL.
+  set xdma_enable_pf0_bar1 [env_choice XDMA_ENABLE_PF0_BAR1 1 {0 1}]
+  set xdma_pf0_bar1_enabled [expr {$xdma_enable_pf0_bar1 eq "1" ? "true" : "false"}]
   if {$uvhs_flow} {
-    set xdma_enable_pf0_bar1 [env_choice XDMA_ENABLE_PF0_BAR1 1 {0 1}]
     set xdma_axilite_master_scale [env_choice XDMA_AXILITE_MASTER_SCALE Kilobytes {Kilobytes Megabytes Gigabytes}]
     set xdma_axilite_master_size [env_positive_integer XDMA_AXILITE_MASTER_SIZE 512]
-    set xdma_pf0_bar1_enabled [expr {$xdma_enable_pf0_bar1 eq "1" ? "true" : "false"}]
   }
   set xdma_lane_count [string range $xdma_link_width 1 end]
   set xdma_lane_msb [expr {$xdma_lane_count - 1}]
@@ -397,13 +404,17 @@ proc create_root_design { parentCell } {
     error "Unsupported XDMA IP version: $xdma_vlnv (only 4.1 or 4.2 supported)"
   }
 
+  # BAR1 is the 64 KiB XDMA configuration BAR used by xdma-chr.  BAR0 keeps
+  # the IP default user-BAR size for the Vivado flow.
+  set_property -dict [list \
+    CONFIG.pf0_bar1_enabled $xdma_pf0_bar1_enabled \
+    CONFIG.pf0_bar1_scale {Kilobytes} \
+    CONFIG.pf0_bar1_size {64} \
+  ] $xdma_0
   if {$uvhs_flow} {
     set_property -dict [list \
       CONFIG.axilite_master_scale $xdma_axilite_master_scale \
       CONFIG.axilite_master_size $xdma_axilite_master_size \
-      CONFIG.pf0_bar1_enabled $xdma_pf0_bar1_enabled \
-      CONFIG.pf0_bar1_scale {Kilobytes} \
-      CONFIG.pf0_bar1_size {64} \
     ] $xdma_0
   }
 
