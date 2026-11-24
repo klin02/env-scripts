@@ -157,14 +157,18 @@ set fpga_diff_ddr_reset_regs [get_cells -hier -quiet -filter {
 if {[llength $fpga_diff_ddr_reset_regs]} {
     set fpga_diff_tdm_tx_sync_candidates [get_pins -hier -quiet -filter {
         REF_PIN_NAME == D &&
-        NAME =~ */uvtdm_tx_ctrl_inst/sync_flop_0_reg*/D
+        (NAME =~ */uvtdm_tx_ctrl_inst/sync_flop_0_reg*/D ||
+         NAME =~ */tx_data_*/uvtdm_parity_g/sync_flop_0_reg*/D)
     }]
     set fpga_diff_tdm_tx_sync_d_pins {}
     if {[llength $fpga_diff_tdm_tx_sync_candidates]} {
-        set fpga_diff_ddr_reset_endpoints \
-            [all_fanout -flat -endpoints_only -from $fpga_diff_ddr_reset_regs]
+        set fpga_diff_ddr_reset_q [get_pins -of_objects $fpga_diff_ddr_reset_regs \
+            -filter {REF_PIN_NAME == Q}]
+        set fpga_diff_ddr_reset_endpoints [all_fanout -flat -endpoints_only \
+            -trace_arcs all -from $fpga_diff_ddr_reset_q]
         foreach fpga_diff_pin $fpga_diff_tdm_tx_sync_candidates {
-            if {[lsearch -exact $fpga_diff_ddr_reset_endpoints $fpga_diff_pin] >= 0} {
+            if {[lsearch -exact $fpga_diff_ddr_reset_endpoints $fpga_diff_pin] >= 0 &&
+                [get_property ASYNC_REG [get_cells -of_objects $fpga_diff_pin]]} {
                 lappend fpga_diff_tdm_tx_sync_d_pins $fpga_diff_pin
             }
         }
