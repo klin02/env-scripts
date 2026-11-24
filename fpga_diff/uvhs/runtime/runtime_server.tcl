@@ -695,7 +695,11 @@ proc uvhs_initialize_runtime {} {
     }
     # Keep clk5_p at the system sign-off frequency committed in this runtime DB.
     # It varies with the partition and PnR result, so it must not be hard-coded.
-    config -clock -name clk6_p -frequency 50000000
+    set clk6_frequency 50000000
+    if {[info exists ::env(UVHS_KMH_EXTLLC_ASYNC)] && $::env(UVHS_KMH_EXTLLC_ASYNC) eq "1"} {
+        set clk6_frequency [expr {min(50000000, [uvhs_query_default_clock_frequency clk6_p])}]
+    }
+    config -clock -name clk6_p -frequency $clk6_frequency
     set signoff_cpu_frequency [uvhs_query_default_clock_frequency clk5_p]
     config -clock -name clk5_p -frequency $signoff_cpu_frequency
     uvhs_configure_tmclk_from_cpu $signoff_cpu_frequency

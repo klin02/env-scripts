@@ -15,6 +15,9 @@
 
 module SimTop_wrapper(
   input           inter_soc_clk,
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+  input           llc_async_clock,
+`endif
   input           sys_rstn_i,
   input           tmclk,
 
@@ -288,6 +291,9 @@ assign dma_core_rlast   = 1'b0;
 `endif
 
 `TOP_NAME u_XSTop(
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+  .io_llc_async_clock             (llc_async_clock),
+`endif
 `ifdef NO_DIFF
   .io_clock                      (inter_soc_clk),
   .io_reset                      (~sys_rstn_i),

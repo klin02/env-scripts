@@ -15,7 +15,11 @@ proc fpga_diff_top_port {name} {
 
 create_clock -name TMCLK -period 1000 [get_ports [fpga_diff_top_port clk8_p]]
 create_clock -name ddr_ref_clk -period 12.5 [get_ports [fpga_diff_top_port clk7_p]]
-create_clock -name CPU_CLK_IN -period 40 [get_ports [fpga_diff_top_port clk5_p]]
+set fpga_diff_soc_period 40
+if {[uvhs::env_or_default UVHS_KMH_EXTLLC_ASYNC 0] eq "1"} {
+    set fpga_diff_soc_period 100
+}
+create_clock -name CPU_CLK_IN -period $fpga_diff_soc_period [get_ports [fpga_diff_top_port clk5_p]]
 create_clock -name UART_CLK_IN -period 20 [get_ports [fpga_diff_top_port clk6_p]]
 create_clock -name jtag_vclk -period 83.333 [get_ports [fpga_diff_top_port JTAG_TCK]]
 # GBus builds do not define XS_XDMA_EP, so this port does not exist. UVHS

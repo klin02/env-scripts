@@ -1362,7 +1362,11 @@ wire [0:0]    br2cfg_wvalid;
   wire [2:0] xdma_axil_arprot;
   wire _unused_xdma_axil_prot = &{1'b0, xdma_axil_awprot, xdma_axil_arprot};
   xdma_ep xdma_ep_i(
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+    .cpu_clk              (cpu_clk_src_i),
+`else
     .cpu_clk              (ref_clk_i),
+`endif
     .cpu_rstn             (sys_rstn),
     .S00_AXIS_0_tdata     (difftest_to_host_axis_tdata),
     .S00_AXIS_0_tkeep     (difftest_to_host_axis_tkeep),
@@ -1423,18 +1427,26 @@ wire [0:0]    br2cfg_wvalid;
       .sync_out (inter_soc_sync_rstn)
   );
 
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+  assign inter_rtc_clk = tmclk;
+`else
   DifftestClockGate RTC_CLK_CTRL(
       .CK  (tmclk),
       .E   (difftest_clock_enable || ~io_host_diff_enable || ~sys_rstn_io || ~cpu_rstn_io ),
       .Q   (inter_rtc_clk)
   );
+`endif
 `else
   wire inter_soc_clk;
   wire inter_rtc_clk;
   wire sys_rstn_io;
   wire cpu_rstn_io;
 
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+  assign inter_soc_clk = cpu_clk_src_i;
+`else
   assign inter_soc_clk = ref_clk_i;
+`endif
   assign inter_rtc_clk = tmclk;
   assign sys_rstn_io = sys_rstn;
   assign cpu_rstn_io = cpu_rstn;
@@ -1550,7 +1562,11 @@ uvw_axi4_to_ddr4 U_UVHS_UVW_AXI4_TO_DDR4 (
     .ddr4ip_dut_axi_rready     (cpu2ddr_m2s_rready),
     .ddr4ip_dut_axi_rresp      (cpu2ddr_s2m_rresp),
     .ddr4ip_dut_axi_rvalid     (cpu2ddr_s2m_rvalid),
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+    .ddr4ip_dut_axi_aclk_en    (1'b1),
+`else
     .ddr4ip_dut_axi_aclk_en    (difftest_clock_gate_enable),
+`endif
     .ddr4ip_ddr4_user_clk      (),
     .ddr4ip_ddr4_user_rst      (uvhs_ddr_user_rst),
     .sysbus_ghbd_i             (256'b0),
@@ -1688,7 +1704,11 @@ SimTop_wrapper U_CPU_TOP(
     .difftest_from_host_axis_tkeep   (difftest_from_host_axis_tkeep),
     .difftest_from_host_axis_tlast   (difftest_from_host_axis_tlast),
     .difftest_clock_enable           (difftest_clock_enable),
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+    .difftest_ref_clock              (cpu_clk_src_i),
+`else
     .difftest_ref_clock              (ref_clk_i),
+`endif
     .difftest_ref_reset              (~sys_rstn),
     .difftest_hostCtrl_reset         (io_host_reset),
     .difftest_hostCtrl_diffEnable    (io_host_diff_enable),
@@ -1712,6 +1732,9 @@ SimTop_wrapper U_CPU_TOP(
     .difftest_cfg_axilite_rready     (difftest_cfg_axilite_rready),
 `endif
     .inter_soc_clk                  (inter_soc_clk),
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+    .llc_async_clock                (ref_clk_i),
+`endif
     .sys_rstn_i                     (cpu_rstn_io  ),
     .tmclk                          (inter_rtc_clk),
 
@@ -1889,12 +1912,19 @@ syscfg U_SYS_CFG(
 assign hpm_dig_result = 0;
 
 AXI_bridge CFG_AXI_bridge_i
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+       (.SYS_INTER_CLK          (ref_clk_i),
+        .SYS_INTER_ARESETN      (axi_bclk_sync_rstn),
+        .UART_ACLK              (uart_sclk),
+        .UART_ARESETN           (uart_sclk_sync_rstn),
+`else
        (.SYS_INTER_CLK          (inter_soc_clk),
 `ifdef UVHS
         .SYS_INTER_ARESETN      (inter_soc_sync_rstn),
 `endif
         .UART_ACLK              (uart_sclk),
         .UART_ARESETN           (uart_sclk_sync_rstn),
+`endif
         .ACLK                   (ref_clk_i),
         .ARESETN                (axi_bclk_sync_rstn),
 

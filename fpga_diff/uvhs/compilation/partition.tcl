@@ -64,6 +64,13 @@ set uvhs_nocmisc_f2_children {
     syscnt
     time_source
 }
+set uvhs_extllc_async [expr {[uvhs::env_or_default UVHS_KMH_EXTLLC_ASYNC 0] eq "1"}]
+if {$uvhs_extllc_async} {
+    # The time source already crosses to time_sink through an asynchronous
+    # queue. Keep the SoC-side counter and its TileLink port with the xbar.
+    set uvhs_nocmisc_f0_anchors [concat $uvhs_nocmisc_f0_anchors $uvhs_nocmisc_f2_children]
+    set uvhs_nocmisc_f2_children {}
+}
 set uvhs_config_path_names {
     core_def/CFG_AXI_bridge_i
     core_def/U_UVHS_FLASH_GBUS
@@ -77,6 +84,13 @@ set uvhs_host_path_names {
     core_def/U_CPU_TOP/u_XSTop/difftest_host
     core_def/U_CPU_TOP/u_XSTop/difftest_memCtrl
     core_def/U_CPU_TOP/u_XSTop/soc/time_sink
+}
+if {$uvhs_extllc_async} {
+    lappend uvhs_host_path_names \
+        core_def/U_CPU_TOP/u_XSTop/soc/downstreamCHI_chi_async_source_0 \
+        core_def/U_CPU_TOP/u_XSTop/soc/downstreamCHI_chi_async_sink_0 \
+        core_def/U_CPU_TOP/u_XSTop/difftest_commandCDC \
+        core_def/U_CPU_TOP/u_XSTop/difftest_statusCDC
 }
 if {$uvhs_hostif eq "XDMA"} {
     lappend uvhs_host_path_names core_def/xdma_ep_i
@@ -190,8 +204,26 @@ if {[llength $uvhs_xiangshan_cell] == 1} {
                 [llength $uvhs_host_path_cells]]
         }
     }
-    set uvhs_memory_path_cells [concat $uvhs_memory_path_cells \
-        $uvhs_nocmisc_f0_cells]
+    if {$uvhs_extllc_async} {
+        # Anchor the whole slow SoC hierarchy, including direct logic between
+        # its children, so the partitioner cannot route local paths via F2.
+        set uvhs_nocmisc_root [get_cells -quiet $uvhs_nocmisc_path]
+        if {[llength $uvhs_nocmisc_root] != 1} {
+            error "expected one nocMisc root, got [llength $uvhs_nocmisc_root]"
+        }
+        lappend uvhs_memory_path_cells [lindex $uvhs_nocmisc_root 0]
+        foreach domain {sysclk devclk} {
+            set uvhs_reset_cells [get_cells -quiet \
+                core_def/xilnx_crg_UVin_${domain}_rstn_UVin_*_reg*]
+            if {[llength $uvhs_reset_cells] != 4} {
+                error "expected four ${domain} reset synchronizer registers, got [llength $uvhs_reset_cells]"
+            }
+            set uvhs_config_path_cells [concat $uvhs_config_path_cells $uvhs_reset_cells]
+        }
+        unset domain uvhs_reset_cells
+    } else {
+        set uvhs_memory_path_cells [concat $uvhs_memory_path_cells $uvhs_nocmisc_f0_cells]
+    }
     if {$uvhs_hostif eq "GBUS"} {
         # XDMA is not instantiated.  Require the GBus host cells that stay on F2.
         set uvhs_missing_gbus_host_cells {}
@@ -218,7 +250,11 @@ if {[llength $uvhs_xiangshan_cell] == 1} {
     puts "INFO: nocMisc direct children on b0.f0: $uvhs_nocmisc_f0_names"
     puts "INFO: nocMisc direct children on b0.f2: $uvhs_nocmisc_f2_names"
     puts "INFO: constrain XiangShan host path to b0.f2: $uvhs_host_path_cells"
-    puts "INFO: keep the complete timer on b0.f0 and the RTC CDC path on b0.f2"
+    if {$uvhs_extllc_async} {
+        puts "INFO: keep the timer and RTC CDC source on b0.f0"
+    } else {
+        puts "INFO: keep the complete timer on b0.f0 and the RTC CDC path on b0.f2"
+    }
 } elseif {[llength $uvhs_xiangshan_cell]} {
     error "expected at most one XiangShan top cell, got [llength $uvhs_xiangshan_cell]"
 } else {
@@ -239,32 +275,34 @@ if {[info exists uvhs_memory_path_cells]} {
     puts "INFO: constrain XiangShan configuration path to b0.f0: $uvhs_config_path_cells"
 }
 if {[llength $uvhs_xiangshan_cell] == 1} {
-    set uvhs_clock_enable_net \
-        [get_nets -quiet {core_def/difftest_clock_gate_enable}]
-    if {[llength $uvhs_clock_enable_net] != 1} {
-        if {$uvhs_hostif eq "GBUS"} {
-            puts "WARNING: DiffTest clock-enable net is unavailable; skip explicit route"
+    if {!$uvhs_extllc_async} {
+        set uvhs_clock_enable_net \
+            [get_nets -quiet {core_def/difftest_clock_gate_enable}]
+        if {[llength $uvhs_clock_enable_net] != 1} {
+            if {$uvhs_hostif eq "GBUS"} {
+                puts "WARNING: DiffTest clock-enable net is unavailable; skip explicit route"
+            } else {
+                error "expected one DiffTest clock-enable net, got [llength $uvhs_clock_enable_net]"
+            }
         } else {
-            error "expected one DiffTest clock-enable net, got [llength $uvhs_clock_enable_net]"
+            assign_route -signals $uvhs_clock_enable_net -path {b0.f2 b0.f0}
+            puts "INFO: constrain DiffTest clock enable to direct b0.f2-b0.f0 route"
         }
-    } else {
-        assign_route -signals $uvhs_clock_enable_net -path {b0.f2 b0.f0}
-        puts "INFO: constrain DiffTest clock enable to direct b0.f2-b0.f0 route"
-    }
 
-    set uvhs_syscnt_path core_def/U_CPU_TOP/u_XSTop/soc/nocMisc/syscnt
-    set uvhs_syscnt_time_nets [concat \
-        [get_nets -quiet ${uvhs_syscnt_path}/time_0*] \
-        [get_nets -quiet ${uvhs_syscnt_path}/time_en]]
-    if {[llength $uvhs_syscnt_time_nets] != 65} {
-        if {$uvhs_hostif eq "GBUS"} {
-            puts "WARNING: syscnt time bus is unavailable/optimized (got [llength $uvhs_syscnt_time_nets]); skip explicit route"
+        set uvhs_syscnt_path core_def/U_CPU_TOP/u_XSTop/soc/nocMisc/syscnt
+        set uvhs_syscnt_time_nets [concat \
+            [get_nets -quiet ${uvhs_syscnt_path}/time_0*] \
+            [get_nets -quiet ${uvhs_syscnt_path}/time_en]]
+        if {[llength $uvhs_syscnt_time_nets] != 65} {
+            if {$uvhs_hostif eq "GBUS"} {
+                puts "WARNING: syscnt time bus is unavailable/optimized (got [llength $uvhs_syscnt_time_nets]); skip explicit route"
+            } else {
+                error "expected 65 syscnt time nets, got [llength $uvhs_syscnt_time_nets]"
+            }
         } else {
-            error "expected 65 syscnt time nets, got [llength $uvhs_syscnt_time_nets]"
+            assign_route -signals $uvhs_syscnt_time_nets -path {b0.f2 b0.f0}
+            puts "INFO: constrain syscnt time bus to direct b0.f2-b0.f0 route"
         }
-    } else {
-        assign_route -signals $uvhs_syscnt_time_nets -path {b0.f2 b0.f0}
-        puts "INFO: constrain syscnt time bus to direct b0.f2-b0.f0 route"
     }
 }
 unset -nocomplain uvhs_ddr_cell uvhs_ddr_connector \
@@ -281,4 +319,4 @@ unset -nocomplain uvhs_ddr_cell uvhs_ddr_connector \
     uvhs_nocmisc_f2_cells uvhs_nocmisc_f2_names uvhs_nocmisc_cell \
     uvhs_nocmisc_relative uvhs_nocmisc_name \
     uvhs_xiangshan_cell uvhs_clock_enable_net uvhs_syscnt_path \
-    uvhs_syscnt_time_nets
+    uvhs_syscnt_time_nets uvhs_nocmisc_root uvhs_extllc_async
