@@ -405,12 +405,8 @@ assign dma_core_rlast   = 1'b0;
   .io_extIntrs                     (io_extIntrs  ),
   .io_rtc_clock                    (tmclk),
   .io_riscv_rst_vec_0              (48'h0000_1000_0000),
-`ifdef CONFIG_SIMTOP_HAS_HART1
-  .io_riscv_rst_vec_1              (48'h0000_1000_0000),
-  .nmi_1_0                         (1'b0),
-  .nmi_1_1                         (1'b0),
-  .io_traceCoreInterface_1_fromEncoder_enable (1'b0),
-  .io_traceCoreInterface_1_fromEncoder_stall  (1'b0),
+`ifdef UVHS
+  `include "kmh_hart_connections.svh"
 `endif
 
 

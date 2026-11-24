@@ -58,6 +58,36 @@ generate_vivado_filelist() {
   echo "INFO: generated $output with ${#rtl_flist_files[@]} external RTL files"
 }
 
+# Chisel flattens per-hart inputs into named ports on SimTop.
+generate_kmh_hart_connections() {
+  local sim_top=$1
+  local output=$2
+  local hart port
+  local ports hart_ids
+  local next_hart=0
+
+  ports=$(sed -nE 's/^[[:space:]]*input[[:space:]]+(\[[^]]*\][[:space:]]+)?([[:alnum:]_]+)[[:space:]]*([,)]|$).*/\2/p' "$sim_top")
+  grep -Fxq io_riscv_rst_vec_0 <<< "$ports" ||
+    rtl_flist_fail "hart 0 reset vector input not found in $sim_top"
+  hart_ids=$(sed -nE 's/^(io_riscv_rst_vec_|nmi_|io_traceCoreInterface_)([0-9]+)(_.*)?$/\2/p' <<< "$ports" | LC_ALL=C sort -nu)
+  : > "$output"
+  for hart in $hart_ids; do
+    [[ $hart == "$next_hart" ]] || rtl_flist_fail "non-contiguous KMH hart port index: $hart (expected $next_hart)"
+    next_hart=$((next_hart + 1))
+    [[ $hart == 0 ]] && continue
+
+    for port in "io_riscv_rst_vec_${hart}" "nmi_${hart}_0" "nmi_${hart}_1" \
+      "io_traceCoreInterface_${hart}_fromEncoder_enable" \
+      "io_traceCoreInterface_${hart}_fromEncoder_stall"; do
+      grep -Fxq "$port" <<< "$ports" || rtl_flist_fail "hart $hart input not found: $port"
+    done
+    printf "  .io_riscv_rst_vec_%s(48'h0000_1000_0000),\n" "$hart" >> "$output"
+    printf "  .%s(1'b0),\n" "nmi_${hart}_0" "nmi_${hart}_1" \
+      "io_traceCoreInterface_${hart}_fromEncoder_enable" \
+      "io_traceCoreInterface_${hart}_fromEncoder_stall" >> "$output"
+  done
+}
+
 generate_uvhs_filelist() {
   local core_dir=$1
   local work_dir=$2
@@ -116,13 +146,8 @@ generate_uvhs_filelist() {
       printf '+define+CONFIG_SIMTOP_HAS_DMA\n'
     fi
 
-    if [[ $cpu == kmh ]] &&
-      grep -Eq '^[[:space:]]*input[[:space:]].*[^[:alnum:]_]io_riscv_rst_vec_1[[:space:],)]' "$core_rtl_dir/SimTop.sv"; then
-      for port in nmi_1_0 nmi_1_1 io_traceCoreInterface_1_fromEncoder_{enable,stall}; do
-        grep -Eq "^[[:space:]]*input[[:space:]].*[^[:alnum:]_]${port}[[:space:],)]" "$core_rtl_dir/SimTop.sv" ||
-          rtl_flist_fail "hart 1 input not found: $port"
-      done
-      printf '+define+CONFIG_SIMTOP_HAS_HART1\n'
+    if [[ $cpu == kmh ]]; then
+      printf '+incdir+%s\n' "$(dirname -- "$output")"
     fi
 
     printf '+incdir+%s\n' "$core_dir" "$core_rtl_dir"
@@ -161,6 +186,10 @@ generate_uvhs_filelist() {
     fi
   } > "$tmp_output"
 
+  if [[ $cpu == kmh ]]; then
+    generate_kmh_hart_connections "$core_rtl_dir/SimTop.sv" "$tmp_dir/kmh_hart_connections.svh"
+    mv -- "$tmp_dir/kmh_hart_connections.svh" "$(dirname -- "$output")/"
+  fi
   mv -- "$tmp_output" "$output"
   case $cpu in
     kmh|nutshell) required_modules=(SimTop) ;;
