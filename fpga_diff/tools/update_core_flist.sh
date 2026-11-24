@@ -116,6 +116,15 @@ generate_uvhs_filelist() {
       printf '+define+CONFIG_SIMTOP_HAS_DMA\n'
     fi
 
+    if [[ $cpu == kmh ]] &&
+      grep -Eq '^[[:space:]]*input[[:space:]].*[^[:alnum:]_]io_riscv_rst_vec_1[[:space:],)]' "$core_rtl_dir/SimTop.sv"; then
+      for port in nmi_1_0 nmi_1_1 io_traceCoreInterface_1_fromEncoder_{enable,stall}; do
+        grep -Eq "^[[:space:]]*input[[:space:]].*[^[:alnum:]_]${port}[[:space:],)]" "$core_rtl_dir/SimTop.sv" ||
+          rtl_flist_fail "hart 1 input not found: $port"
+      done
+      printf '+define+CONFIG_SIMTOP_HAS_HART1\n'
+    fi
+
     printf '+incdir+%s\n' "$core_dir" "$core_rtl_dir"
     if [[ -d $core_generated_dir ]]; then
       printf '+incdir+%s\n' "$core_generated_dir"
