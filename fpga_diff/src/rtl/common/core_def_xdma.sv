@@ -1200,6 +1200,10 @@ wire [0:0]    br2cfg_wready;
 wire [7:0]    br2cfg_wstrb;
 wire [0:0]    br2cfg_wvalid;
 
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+  wire inter_llc_clk;
+`endif
+
 `ifndef NO_DIFF
   // CPU-side DiffTest AXI-Lite.  XDMA drives it directly; GBus crosses from
   // the host-clock XDMA_AXI_LITE wires below.
@@ -1428,14 +1432,35 @@ wire [0:0]    br2cfg_wvalid;
   );
 
 `ifdef UVHS_KMH_EXTLLC_ASYNC
-  assign inter_rtc_clk = tmclk;
-`else
-  DifftestClockGate RTC_CLK_CTRL(
-      .CK  (tmclk),
-      .E   (difftest_clock_enable || ~io_host_diff_enable || ~sys_rstn_io || ~cpu_rstn_io ),
-      .Q   (inter_rtc_clk)
+  // Sample the pause request on the ungated clocks so a stalled DUT can resume.
+  wire llc_clock_gate_enable;
+  wire rtc_clock_gate_enable;
+  RST_SYNC #(.INIT(1'b1)) llc_gate_enable_sync (
+      .clk      (ref_clk_i),
+      .async_in (difftest_clock_gate_enable),
+      .sync_out (llc_clock_gate_enable)
+  );
+  RST_SYNC #(.INIT(1'b1)) rtc_gate_enable_sync (
+      .clk      (tmclk),
+      .async_in (difftest_clock_gate_enable),
+      .sync_out (rtc_clock_gate_enable)
+  );
+  // The LLC, memory controller and their AXI peers must see the same edges.
+  DifftestClockGate LLC_CLK_CTRL(
+      .CK  (ref_clk_i),
+      .E   (llc_clock_gate_enable),
+      .Q   (inter_llc_clk)
   );
 `endif
+  DifftestClockGate RTC_CLK_CTRL(
+      .CK  (tmclk),
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+      .E   (rtc_clock_gate_enable),
+`else
+      .E   (difftest_clock_gate_enable),
+`endif
+      .Q   (inter_rtc_clk)
+  );
 `else
   wire inter_soc_clk;
   wire inter_rtc_clk;
@@ -1444,6 +1469,7 @@ wire [0:0]    br2cfg_wvalid;
 
 `ifdef UVHS_KMH_EXTLLC_ASYNC
   assign inter_soc_clk = cpu_clk_src_i;
+  assign inter_llc_clk = ref_clk_i;
 `else
   assign inter_soc_clk = ref_clk_i;
 `endif
@@ -1521,7 +1547,11 @@ assign cpu2ddr_s2m_rid = {4'b0, uvhs_ddr_rid};
 assign init_calib_complete = rstn_sw4 & ~uvhs_ddr_user_rst;
 
 uvw_axi4_to_ddr4 U_UVHS_UVW_AXI4_TO_DDR4 (
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+    .ddr4ip_dut_axi_aclk       (inter_llc_clk),
+`else
     .ddr4ip_dut_axi_aclk       (ref_clk_i),
+`endif
     .ddr4ip_dut_axi_aresetn    (rstn_sw4),
     .ddr4ip_dut_axi_awaddr     (uvhs_ddr_awaddr),
     .ddr4ip_dut_axi_awburst    (cpu2ddr_m2s_awburst),
@@ -1563,6 +1593,7 @@ uvw_axi4_to_ddr4 U_UVHS_UVW_AXI4_TO_DDR4 (
     .ddr4ip_dut_axi_rresp      (cpu2ddr_s2m_rresp),
     .ddr4ip_dut_axi_rvalid     (cpu2ddr_s2m_rvalid),
 `ifdef UVHS_KMH_EXTLLC_ASYNC
+    // The shared LLC clock already gates the DDR AXI user port.
     .ddr4ip_dut_axi_aclk_en    (1'b1),
 `else
     .ddr4ip_dut_axi_aclk_en    (difftest_clock_gate_enable),
@@ -1733,7 +1764,7 @@ SimTop_wrapper U_CPU_TOP(
 `endif
     .inter_soc_clk                  (inter_soc_clk),
 `ifdef UVHS_KMH_EXTLLC_ASYNC
-    .llc_async_clock                (ref_clk_i),
+    .llc_async_clock                (inter_llc_clk),
 `endif
     .sys_rstn_i                     (cpu_rstn_io  ),
     .tmclk                          (inter_rtc_clk),
@@ -1913,7 +1944,7 @@ assign hpm_dig_result = 0;
 
 AXI_bridge CFG_AXI_bridge_i
 `ifdef UVHS_KMH_EXTLLC_ASYNC
-       (.SYS_INTER_CLK          (ref_clk_i),
+       (.SYS_INTER_CLK          (inter_llc_clk),
         .SYS_INTER_ARESETN      (axi_bclk_sync_rstn),
         .UART_ACLK              (uart_sclk),
         .UART_ARESETN           (uart_sclk_sync_rstn),

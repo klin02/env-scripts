@@ -85,6 +85,7 @@ if {[uvhs::env_or_default UVHS_KMH_EXTLLC_ASYNC 0] eq "1"} {
 }
 foreach {clock_name master_name cell_name} [list \
     SOC_GATED_CLK $cpu_gate_master core_def/SOC_CLK_CTRL_UVin_bufgce_1 \
+    LLC_GATED_CLK CPU_CLK_IN       core_def/LLC_CLK_CTRL_UVin_bufgce_1 \
     RTC_GATED_CLK TMCLK             core_def/RTC_CLK_CTRL_UVin_bufgce_1] {
     set master_clock [get_clocks -quiet $master_name]
     set input_pin [get_pins -quiet ${cell_name}/I]

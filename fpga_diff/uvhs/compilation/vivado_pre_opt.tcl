@@ -92,6 +92,7 @@ if {$extllc_async} {
 }
 foreach {fpga_diff_clock fpga_diff_master fpga_diff_gate} [list \
     SOC_GATED_CLK $cpu_gate_master SOC_CLK_CTRL_UVin_bufgce_1 \
+    LLC_GATED_CLK CPU_CLK_IN       LLC_CLK_CTRL_UVin_bufgce_1 \
     RTC_GATED_CLK TMCLK             RTC_CLK_CTRL_UVin_bufgce_1] {
     set fpga_diff_gate_input [get_pins -hierarchical -quiet -filter \
         "NAME =~ */UV_REPLICATED_CLOCKCONE/${fpga_diff_gate}/I"]
