@@ -86,7 +86,14 @@ RST_SYNC #(
    .INIT            (1'b0)
 ) devclk_rstn (
    .clk     (dev_clk),
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+   // The CLK6 domain also clocks the host reset register on F2. Use the
+   // local slow-domain reset level so UART reset assertion and release pass
+   // through the F0 synchronizers without a one-cycle F2-to-F0 dependency.
+   .async_in(sysclk_sync_rstn),
+`else
    .async_in(sys_rstn),
+`endif
    .sync_out(devclk_sync_rstn)
 );
 

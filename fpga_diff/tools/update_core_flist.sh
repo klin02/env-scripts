@@ -91,6 +91,10 @@ generate_uvhs_filelist() {
 
   {
     printf '+define+SYNTHESIS\n+define+XIANGSHAN_FPGA\n+define+UVHS\n'
+    if [[ ${UVHS_KMH_EXTLLC_ASYNC:-0} == 1 ]]; then
+      [[ $cpu == kmh && $hostif == XDMA ]] || rtl_flist_fail "async ExtLLC requires CPU=kmh and XDMA"
+      printf '+define+UVHS_KMH_EXTLLC_ASYNC\n'
+    fi
     host_define=${DIFFTEST_HOST_DEFINE:-}
     if [[ -z $host_define ]]; then
       if [[ $hostif == GBUS ]]; then

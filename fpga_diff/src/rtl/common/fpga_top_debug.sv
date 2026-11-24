@@ -244,8 +244,12 @@ IBUFDS_GTE4 refclk2_ibuf (
 `endif
 
 `ifdef UVHS
+`ifdef UVHS_KMH_EXTLLC_ASYNC
+assign        cpu_clk_src_i = cqetmclk_buf;
+`else
 assign        cpu_clk_src_i = dbg_clk_buf;
-assign        ref_clk_i = cpu_clk_src_i;
+`endif
+assign        ref_clk_i = dbg_clk_buf;
 `else
 // Divide the 200MHz board clock; Vivado derives its clock constraint.
 BUFGCE_DIV #(

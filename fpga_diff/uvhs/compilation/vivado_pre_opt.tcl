@@ -84,10 +84,15 @@ puts "INFO: XDMA CDC total ASYNC_REG count=[llength $fpga_diff_xdma_cdc_cells]"
 # UVHS emits replicated clock cones as primary clocks in each FPGA constraint
 # file. Rebuild their source relationship after Vivado links the partition so
 # CDC signoff still recognizes the original master clock.
-foreach {fpga_diff_clock fpga_diff_master fpga_diff_gate} {
-    SOC_GATED_CLK CPU_CLK_IN SOC_CLK_CTRL_UVin_bufgce_1
-    RTC_GATED_CLK TMCLK      RTC_CLK_CTRL_UVin_bufgce_1
-} {
+set cpu_gate_master CPU_CLK_IN
+set extllc_async [expr {[info exists ::env(UVHS_KMH_EXTLLC_ASYNC)] &&
+    $::env(UVHS_KMH_EXTLLC_ASYNC) eq "1"}]
+if {$extllc_async} {
+    set cpu_gate_master UART_CLK_IN
+}
+foreach {fpga_diff_clock fpga_diff_master fpga_diff_gate} [list \
+    SOC_GATED_CLK $cpu_gate_master SOC_CLK_CTRL_UVin_bufgce_1 \
+    RTC_GATED_CLK TMCLK             RTC_CLK_CTRL_UVin_bufgce_1] {
     set fpga_diff_gate_input [get_pins -hierarchical -quiet -filter \
         "NAME =~ */UV_REPLICATED_CLOCKCONE/${fpga_diff_gate}/I"]
     set fpga_diff_gate_output [get_pins -hierarchical -quiet -filter \
@@ -113,7 +118,7 @@ if {[info exists ::env(DIFFTEST_HOSTIF)] && $::env(DIFFTEST_HOSTIF) ne ""} {
 
 set fpga_diff_async_groups [list]
 set fpga_diff_async_clock_names {TMCLK ddr_ref_clk CPU_CLK_IN jtag_vclk pcie_ep_refclk}
-if {[string toupper $fpga_diff_hostif] eq "GBUS"} {
+if {$extllc_async || [string toupper $fpga_diff_hostif] eq "GBUS"} {
     lappend fpga_diff_async_clock_names UART_CLK_IN
 }
 foreach fpga_diff_clock $fpga_diff_async_clock_names {
